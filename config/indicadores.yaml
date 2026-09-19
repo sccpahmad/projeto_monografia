@@ -1,0 +1,190 @@
+# ============================================================================
+# Configuração do Índice Composto de Risco (ICR)
+# ----------------------------------------------------------------------------
+# Tudo que é "decisão metodológica" do TCC fica aqui, fora do código:
+#   - quais indicadores entram, de qual dimensão CAMELS, com qual peso/sinal;
+#   - quais séries macro do SGS são usadas na validação;
+#   - parâmetros de coleta, padronização e zona de risco.
+# Assim você consegue justificar/alterar a metodologia editando só este arquivo.
+# ============================================================================
+
+coleta:
+  # Geração automática dos trimestres (AAAAMM, fim de trimestre: 03/06/09/12).
+  # O IF.Data tem histórico desde 2000; a partir de ~2015 a cobertura é ótima.
+  # Encerramos em 202412: em 2025 o BCB reformou o plano de contas do IF.Data
+  # (Res. CMN 4.966 / perda esperada, tipo IFRS 9), quebrando a comparabilidade
+  # dos relatórios de Ativo (2) e DRE (4). Ver README §5 e Resultados §4.1.
+  periodos_auto:
+    inicio: 201603
+    fim: 202412
+  # Alternativa: liste períodos manualmente (tem prioridade se preenchido).
+  # periodos: [202312, 202403, 202406, 202409, 202412]
+  periodos: []
+
+  # Relatórios do IF.Data a coletar (números): 1=Resumo, 2=Ativo, 4=DRE.
+  relatorios: [1, 2, 4]
+
+  # Janela das séries macro (SGS) para a validação.
+  sgs_data_inicial: "01/01/2015"
+  sgs_data_final: "31/12/2025"
+
+# ----------------------------------------------------------------------------
+# Painéis: a API Olinda força um trade-off (ver README 3.1) — ou Basileia
+# (tipo 1) ou os grandes bancos (tipo 3). Rodamos os dois em paralelo.
+# Cada painel gera saídas próprias em data/{raw,processed}/<nome>/ e figuras/<nome>/.
+#   tipo: 1 = Conglomerado Prudencial (COM Basileia; coop. e bancos médios)
+#         3 = Instituição Individual (inclui BB/Itaú/Caixa/Bradesco/Santander)
+# ----------------------------------------------------------------------------
+paineis:
+  - nome: prudencial
+    tipo: 1
+    descricao: "Conglomerados prudenciais + independentes (CAMELS completo, com Basileia)"
+  - nome: sistemico
+    tipo: 3
+    descricao: "Instituições individuais (inclui os grandes bancos; sem Basileia)"
+
+# ----------------------------------------------------------------------------
+# ICR 2.0 — extensão IFRS-9 (2025+). Sob a Resolução CMN 4.966, o IF.Data passou
+# a divulgar a Perda Esperada (IFRS 9), permitindo cobrir a dimensão 'A' (Asset
+# quality) do CAMELS — ausente no índice de 2016–2024 — via CUSTO DE RISCO.
+# CAMELS completo: C, A, M, E, L. Usado pelo script 09_icr2_ifrs9.py.
+# ----------------------------------------------------------------------------
+icr2_indicadores:
+  basileia:     {camels: C, sinal: 1,  peso: 0.18}
+  alavancagem:  {camels: C, sinal: -1, peso: 0.07}
+  custo_risco:  {camels: A, sinal: -1, peso: 0.15}   # perda esperada / ativo (novo)
+  imobilizacao: {camels: M, sinal: -1, peso: 0.07}
+  eficiencia:   {camels: M, sinal: -1, peso: 0.10}   # despesas / receita bruta (pré-provisão)
+  roa:          {camels: E, sinal: 1,  peso: 0.10}
+  roe:          {camels: E, sinal: 1,  peso: 0.10}
+  liquidez:     {camels: L, sinal: 1,  peso: 0.13}
+  # Obs.: estes pesos somam 0,90 no bruto (não 1,0). São renormalizados para somar
+  # 1 na construção do índice (score.calcular_icr divide cada peso pela soma dos
+  # indicadores presentes), então a escala absoluta é irrelevante para o ICR 2.0.
+
+# ----------------------------------------------------------------------------
+# Indicadores que compõem o ICR.
+#   camels : dimensão do framework CAMELS (C, A, M, E, L, S)
+#   sinal  : +1 se "quanto maior, mais sólido"; -1 se "quanto maior, mais risco"
+#   peso   : importância prudencial (os pesos são renormalizados para somar 1)
+#   fonte  : 'resumo' (vem direto do relatório) ou 'derivado' (calculado)
+# ----------------------------------------------------------------------------
+indicadores:
+  basileia:
+    camels: C
+    sinal: 1
+    peso: 0.25
+    fonte: resumo
+    descricao: "Índice de Basileia (PR / RWA) — solvência"
+  alavancagem:
+    camels: C
+    sinal: -1
+    peso: 0.10
+    fonte: derivado
+    descricao: "Ativo Total / Patrimônio Líquido — alavancagem"
+  roa:
+    camels: E
+    sinal: 1
+    peso: 0.125
+    fonte: derivado
+    descricao: "Retorno sobre Ativos (Lucro Líquido anualizado / Ativo Total)"
+  roe:
+    camels: E
+    sinal: 1
+    peso: 0.125
+    fonte: derivado
+    descricao: "Retorno sobre PL (Lucro Líquido anualizado / Patrimônio Líquido)"
+  imobilizacao:
+    camels: M
+    sinal: -1
+    peso: 0.10
+    fonte: resumo
+    descricao: "Índice de Imobilização (Ativo Permanente / PR)"
+  liquidez:
+    camels: L
+    sinal: 1
+    peso: 0.15
+    fonte: derivado
+    descricao: "(Disponib. + Aplic. Interfin. + TVM) / Ativo Total — rel. 2"
+  eficiencia:
+    camels: M
+    sinal: -1
+    peso: 0.15
+    fonte: derivado
+    descricao: "(Desp. Pessoal + Desp. Adm.) / Receita operacional — rel. 4"
+
+padronizacao:
+  metodo: zscore          # 'zscore' (média/desvio) ou 'robusto' (mediana/IQR)
+  winsorizar: true        # apara caudas antes de padronizar (bancos têm outliers)
+  winsor_limites: [0.01, 0.99]
+  por: AnoMes             # padroniza dentro de cada trimestre (comparabilidade)
+
+filtro_instituicoes:
+  # Há milhares de instituições minúsculas. Para um ranking interpretável,
+  # foca nas relevantes por porte. ATENÇÃO: o IF.Data informa o Ativo Total em
+  # REAIS (ex.: Banco do Brasil ~ 2,3e12), portanto 1.000.000 = R$ 1 milhão.
+  # O nome do parâmetro ('_mil') foi mantido por compatibilidade com o código.
+  ativo_total_minimo_mil: 1000000   # R$ 1 milhão
+  exigir_basileia: true             # descarta quem não reporta Basileia
+
+zona_risco:
+  # A "zona de risco" é o percentil inferior do ICR (menos sólidos).
+  percentil: 0.10
+
+# Modelo de Alerta Precoce (EWS) — definição do evento de distress e horizonte.
+distress:
+  basileia_min: 10.5     # quebra do requerimento de capital + colchão de conservação
+  roe_min: -30.0         # prejuízo severo (corrói >30% do PL ao ano)
+  horizonte: 4           # prevê distress em até 4 trimestres à frente
+
+# Orientação do índice final:
+#   'solidez' -> quanto MAIOR o ICR, mais saudável o banco (segue o TCC)
+#   'risco'   -> quanto MAIOR o ICR, mais arriscado (inverte o sinal)
+orientacao: solidez
+
+# ----------------------------------------------------------------------------
+# Séries do SGS (Sistema Gerenciador de Séries Temporais) usadas na validação
+# macroeconômica. Todas validadas e ativas na API do BCB.
+# ----------------------------------------------------------------------------
+sgs_series:
+  inadimplencia_total: 21082
+  inadimplencia_pj: 21083
+  inadimplencia_pf: 21084
+  spread_total: 20783
+  spread_pj: 20786
+  spread_pf: 20787
+  selic_mensal: 4390         # Selic acumulada no mês (% a.m.) — série mensal
+  ipca_mensal: 433
+  icc_total: 21379          # Indicador de Custo do Crédito
+
+# ----------------------------------------------------------------------------
+# Validação com ações (B3) — 4ª camada de validação prevista na proposta.
+# Cruza o ICR dos bancos listados (painel sistêmico) com o retorno das ações.
+# Cotações via API pública do Yahoo Finance (ticker + sufixo ".SA").
+# CodInst confere com a visão individual (tipo 3) do IF.Data.
+# ----------------------------------------------------------------------------
+acoes:
+  sufixo_yahoo: ".SA"
+  range: "10y"
+  intervalo: "3mo"
+  tickers:
+    ITUB4: "60701190"     # Itaú Unibanco
+    BBDC4: "60746948"     # Bradesco
+    BBAS3: "00000000"     # Banco do Brasil
+    SANB11: "90400888"    # Santander Brasil
+    BPAC11: "30306294"    # BTG Pactual
+
+# Crosswalk para a etapa 07 (grandes bancos com Basileia): o nome na visão
+# individual (Olinda tipo 3) difere do nome na visão prudencial (portal).
+# Mapeia CodInst (individual) -> nome exato na visão prudencial do portal.
+crosswalk_prudencial:
+  "00000000": "BB - PRUDENCIAL"
+  "60701190": "ITAU - PRUDENCIAL"
+  "60746948": "BRADESCO - PRUDENCIAL"
+  "90400888": "SANTANDER - PRUDENCIAL"
+  "00360305": "CAIXA ECONÔMICA FEDERAL - PRUDENCIAL"
+  "30306294": "BTG PACTUAL - PRUDENCIAL"
+  "58160789": "SAFRA - PRUDENCIAL"
+  "92702067": "BANRISUL - PRUDENCIAL"
+  "18236120": "NU PAGAMENTOS - PRUDENCIAL"
+  "59588111": "VOTORANTIM - PRUDENCIAL"
